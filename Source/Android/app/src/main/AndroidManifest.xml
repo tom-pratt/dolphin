@@ -167,6 +167,16 @@
             </intent-filter>
         </provider>
 
+        <provider
+            android:name=".GameCubeProvider"
+            android:authorities="{applicationId}.gamecubeprovider"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.gameswitchlauncher.PROVIDER" />
+            </intent-filter>
+        </provider>
+
     </application>
 
 </manifest>
