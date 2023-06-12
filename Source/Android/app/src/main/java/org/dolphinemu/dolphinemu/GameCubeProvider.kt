@@ -6,6 +6,10 @@ import android.os.ParcelFileDescriptor.MODE_READ_ONLY
 import com.gameswitchlauncher.common.Game
 import com.gameswitchlauncher.common.SaveState
 import com.gameswitchlauncher.provider.GameSwitchProvider
+import org.dolphinemu.dolphinemu.activities.EmulationActivity
+import org.dolphinemu.dolphinemu.activities.EmulationActivity.Companion.EXTRA_RIIVOLUTION
+import org.dolphinemu.dolphinemu.activities.EmulationActivity.Companion.EXTRA_SELECTED_GAMES
+import org.dolphinemu.dolphinemu.activities.EmulationActivity.Companion.EXTRA_STATE_SAVE_SLOT
 import org.dolphinemu.dolphinemu.services.GameFileCacheManager
 import org.dolphinemu.dolphinemu.ui.platform.Platform
 import org.dolphinemu.dolphinemu.utils.CoilUtils
@@ -47,6 +51,13 @@ class GameCubeProvider : GameSwitchProvider() {
     }
 
     override fun getLaunchIntent(gameId: String, saveStateId: String?): Intent {
-        throw NotImplementedError()
+        val game = GameFileCacheManager.getGameFilesForPlatform(Platform.GAMECUBE)
+            .first { it.gameId == gameId }
+
+        return Intent(context, EmulationActivity::class.java).apply {
+            putExtra(EXTRA_SELECTED_GAMES, arrayOf(game.path))
+            putExtra(EXTRA_RIIVOLUTION, false)
+            saveStateId?.let { putExtra(EXTRA_STATE_SAVE_SLOT, it.last().digitToInt()) }
+        }
     }
 }

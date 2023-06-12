@@ -156,6 +156,19 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
                 add(FigureSlot(getString(R.string.infinity_p2a2_label), 6))
             }
         }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            while (true) {
+                if (NativeLibrary.IsRunningAndStarted()) {
+                    val stateSaveSlot = intent.getIntExtra(EXTRA_STATE_SAVE_SLOT, -1)
+                    if (stateSaveSlot > -1) {
+                        NativeLibrary.LoadState(stateSaveSlot)
+                    }
+                    break
+                }
+                delay(50)
+            }
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -954,6 +967,7 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
         private val buttonsActionsMap = SparseIntArray()
 
         const val EXTRA_SELECTED_GAMES = "SelectedGames"
+        const val EXTRA_STATE_SAVE_SLOT = "StateSaveSlot"
         const val EXTRA_RIIVOLUTION = "Riivolution"
         const val EXTRA_SYSTEM_MENU = "SystemMenu"
         const val EXTRA_USER_PAUSED_EMULATION = "sUserPausedEmulation"
