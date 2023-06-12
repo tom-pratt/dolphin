@@ -56,9 +56,16 @@ import org.dolphinemu.dolphinemu.overlay.InputOverlayPointer
 import org.dolphinemu.dolphinemu.ui.main.MainPresenter
 import org.dolphinemu.dolphinemu.ui.main.ThemeProvider
 import org.dolphinemu.dolphinemu.utils.AfterDirectoryInitializationRunner
+import org.dolphinemu.dolphinemu.utils.DirectoryInitialization
 import org.dolphinemu.dolphinemu.utils.FileBrowserHelper
 import org.dolphinemu.dolphinemu.utils.ThemeHelper
+import java.io.File
 import kotlin.math.roundToInt
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 class EmulationActivity : AppCompatActivity(), ThemeProvider {
     private var emulationFragment: EmulationFragment? = null
@@ -448,7 +455,38 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
             }
 
             MENU_ACTION_TAKE_SCREENSHOT -> NativeLibrary.SaveScreenShot()
-            MENU_ACTION_QUICK_SAVE -> NativeLibrary.SaveState(9, false)
+            MENU_ACTION_QUICK_SAVE -> {
+                NativeLibrary.SaveState(9, false)
+
+                val screenShotsDir = File("${DirectoryInitialization.getUserDirectory()}/Screenshots")
+                val initialScreenShotCount = screenShotsDir.listFiles()?.sumOf { it.list().size } ?: 0
+
+                NativeLibrary.SaveScreenShot()
+
+                lifecycleScope.launch(Dispatchers.IO) {
+                    withTimeout(10000) {
+                        while (true) {
+                            delay(100)
+                            val screenShotCount = screenShotsDir.listFiles()!!.sumOf { it.list()!!.size } ?: 0
+                            if (screenShotCount > initialScreenShotCount) {
+                                delay(200)
+                                val latestScreenShot = screenShotsDir.listFiles()!!
+                                    .toList()
+                                    .map { it.listFiles()!!.toList() }
+                                    .flatten()
+                                    .maxBy { it.lastModified() }
+
+                                val segments = latestScreenShot.absolutePath.split('/')
+                                val gameId = segments.reversed()[1]
+
+                                val saveStateScreenShot = File("${DirectoryInitialization.getUserDirectory()}/StateSaves/$gameId.s09.png")
+                                latestScreenShot.renameTo(saveStateScreenShot)
+                                break
+                            }
+                        }
+                    }
+                }
+            }
             MENU_ACTION_QUICK_LOAD -> NativeLibrary.LoadState(9)
             MENU_ACTION_SAVE_ROOT -> showSubMenu(SaveOrLoad.SAVE)
             MENU_ACTION_LOAD_ROOT -> showSubMenu(SaveOrLoad.LOAD)
