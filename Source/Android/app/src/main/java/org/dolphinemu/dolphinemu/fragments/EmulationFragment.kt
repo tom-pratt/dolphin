@@ -4,6 +4,7 @@ package org.dolphinemu.dolphinemu.fragments
 
 import android.content.Context
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.SurfaceHolder
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.activities.EmulationActivity
 import org.dolphinemu.dolphinemu.databinding.FragmentEmulationBinding
+import org.dolphinemu.dolphinemu.features.externaldisplay.EmulationPresentation
 import org.dolphinemu.dolphinemu.features.netplay.NetplayManager
 import org.dolphinemu.dolphinemu.features.settings.model.BooleanSetting
 import org.dolphinemu.dolphinemu.features.settings.model.Settings
@@ -40,6 +42,11 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
 
     private var _binding: FragmentEmulationBinding? = null
     private val binding get() = _binding!!
+
+    private var emulationPresentation: EmulationPresentation? = null
+
+    /** The SurfaceHolder we currently drive [SurfaceHolder.Callback] events from, if any. */
+    private var attachedHolder: SurfaceHolder? = null
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -71,9 +78,10 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        // The new Surface created here will get passed to the native code via onSurfaceChanged.
+        // The SurfaceHolder.Callback is attached later in onStart(), against whichever SurfaceView
+        // is the active game render target (the Presentation's SurfaceView when an external display
+        // is connected, otherwise the local one).
         val surfaceView = binding.surfaceEmulation
-        surfaceView.holder.addCallback(this)
 
         inputOverlay = binding.surfaceInputOverlay
 
@@ -101,6 +109,12 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
         _binding = null
     }
 
+    override fun onStart() {
+        super.onStart()
+        showEmulationPresentationIfApplicable()
+        attachSurfaceCallback()
+    }
+
     override fun onResume() {
         super.onResume()
         if (NativeLibrary.IsGameMetadataValid()) {
@@ -120,8 +134,19 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
         super.onPause()
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Dismissing the Presentation destroys its Surface, which triggers surfaceDestroyed →
+        // NativeLibrary.SurfaceDestroyed() via our attached callback. Detach *after* so we don't
+        // suppress that final event.
+        dismissEmulationPresentation()
+        detachSurfaceCallback()
+    }
+
     override fun onDestroy() {
         inputOverlay?.onDestroy()
+        dismissEmulationPresentation()
+        detachSurfaceCallback()
         super.onDestroy()
     }
 
@@ -262,6 +287,54 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
     }
 
     fun saveTemporaryState() = NativeLibrary.SaveStateAs(temporaryStateFilePath)
+
+    /**
+     * If any presentation-capable secondary display is connected, show a companion
+     * [EmulationPresentation] on it. This includes on-board MIPI-DSI-to-HDMI bridge phantom
+     * displays (e.g. the AYN Odin 2's HDMI port), which are always "connected" whether or not a
+     * cable is plugged in — we accept rendering into the void in that case.
+     */
+    private fun showEmulationPresentationIfApplicable() {
+        if (emulationPresentation != null) return
+        val context = context ?: return
+        val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val display = displayManager
+            .getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
+            .firstOrNull() ?: return
+
+        emulationPresentation = EmulationPresentation(context, display).apply {
+            setOnDismissListener { emulationPresentation = null }
+            show()
+        }
+    }
+
+    private fun dismissEmulationPresentation() {
+        emulationPresentation?.dismiss()
+        emulationPresentation = null
+    }
+
+    /**
+     * Registers this fragment as the [SurfaceHolder.Callback] on whichever SurfaceView is the
+     * active game render target: the [EmulationPresentation]'s SurfaceView if we're in
+     * external-display mode, otherwise the local one inside [FragmentEmulationBinding].
+     *
+     * If the surface has already been created, `SurfaceHolder.addCallback` will drive an immediate
+     * `surfaceChanged` on us, which pushes it into native via [NativeLibrary.SurfaceChanged].
+     */
+    private fun attachSurfaceCallback() {
+        val target = emulationPresentation?.surfaceView?.holder
+            ?: _binding?.surfaceEmulation?.holder
+            ?: return
+        if (attachedHolder === target) return
+        attachedHolder?.removeCallback(this)
+        target.addCallback(this)
+        attachedHolder = target
+    }
+
+    private fun detachSurfaceCallback() {
+        attachedHolder?.removeCallback(this)
+        attachedHolder = null
+    }
 
     private val temporaryStateFilePath: String
         get() = "${requireContext().filesDir}${File.separator}temp.sav"
