@@ -202,6 +202,10 @@ fun OutlinedBox(
     content: @Composable () -> Unit,
 ) {
     Box(
+        // Without this the outer Box grows to any min height from `modifier`, but the
+        // DecorationBox that draws the outline is measured with relaxed constraints and
+        // still wraps its content.
+        propagateMinConstraints = true,
         modifier = modifier
             .padding(top = 8.dp)
     ) {

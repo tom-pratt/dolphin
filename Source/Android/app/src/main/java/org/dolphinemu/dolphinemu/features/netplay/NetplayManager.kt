@@ -18,10 +18,11 @@ object NetplayManager {
         private set
 
     suspend fun createSession(): NetplaySession = mutex.withLock {
-        closeComplete?.await()
+        if (activeSession?.isClosed == false) {
+            throw IllegalStateException("Tried to create a new NetplaySession while the old one was not closed.")
+        }
 
-        // Sessions should be closed by UI navigation, but just in case.
-        activeSession?.closeBlocking()
+        closeComplete?.await()
 
         closeComplete = CompletableDeferred()
 

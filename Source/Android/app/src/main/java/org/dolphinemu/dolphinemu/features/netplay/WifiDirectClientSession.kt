@@ -1,0 +1,187 @@
+package org.dolphinemu.dolphinemu.features.netplay
+
+import android.app.Application
+import android.net.MacAddress
+import android.net.wifi.p2p.WifiP2pConfig
+import android.net.wifi.p2p.WifiP2pManager
+import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest
+import android.os.SystemClock
+import android.util.Log
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
+
+class WifiDirectClientSession(
+    application: Application,
+    manager: WifiP2pManager,
+    onClosed: () -> Unit,
+) : WifiDirectSession(application, manager, onClosed) {
+
+    data class Host(
+        val deviceAddress: String,
+        val name: String,
+    )
+
+    data class LastSeenHost(
+        val host: Host,
+        val timestamp: Long,
+    )
+
+    data class DiscoveryFailure(val message: String)
+
+    sealed interface ConnectResult {
+        data class Success(val groupOwnerAddress: String) : ConnectResult
+
+        data class Failure(val reason: Int) : ConnectResult
+
+        data object Timeout : ConnectResult
+    }
+
+    override val TAG: String = "WifiDirectClientSession"
+
+    private val _hosts = MutableStateFlow<Map<String, LastSeenHost>>(emptyMap())
+    val hosts = combine(_hosts, peers) { hosts, peers ->
+        hosts
+            .map { it.value.host }
+            .filter { host ->
+                peers.any { it.deviceAddress == host.deviceAddress }
+            }
+    }
+
+    init {
+        val txtListener = WifiP2pManager.DnsSdTxtRecordListener { fullDomain, record, device ->
+//            Log.d("WifiDirect", "DnsSdTxtRecord available - $fullDomain $device $record")
+            if (fullDomain.contains(SERVICE_TYPE)) {
+                _hosts.value = _hosts.value.toMutableMap().apply {
+                    put(
+                        key = device.deviceAddress,
+                        value = LastSeenHost(
+                            host = Host(
+                                deviceAddress = device.deviceAddress,
+                                name = record[TXT_MAP_NAME]!!,
+                            ),
+                            timestamp = SystemClock.elapsedRealtime(),
+                        )
+                    )
+                }
+            }
+        }
+
+        manager.setDnsSdResponseListeners(channel, null, txtListener)
+    }
+
+    override fun onClose() {
+        _hosts.value = emptyMap()
+    }
+
+    /**
+     * Start discovering dolphin netplay services. Run until the coroutine is cancelled or an
+     * error occurs.
+     */
+    suspend fun runDiscovery(): DiscoveryFailure {
+        when (val groupPreparationResult = clearGroup()) {
+            ClearGroupResult.Success -> Unit
+            is ClearGroupResult.FailedToRemoveDolphinGroup -> return DiscoveryFailure(
+                GENERIC_FAILURE_MESSAGE
+            )
+
+            is ClearGroupResult.ExistingNonDolphinGroup -> return DiscoveryFailure("WiFi direct is being used by another app (${groupPreparationResult.networkName}).")
+        }
+
+        val serviceRequest = WifiP2pDnsSdServiceRequest.newInstance()
+        val addServiceRequestResult =
+            awaitActionListener { manager.addServiceRequest(channel, serviceRequest, it) }
+        if (addServiceRequestResult is ActionListenerResult.Failure) {
+            Log.d(TAG, "addServiceRequest failed with reason=${addServiceRequestResult.reason}")
+            return DiscoveryFailure(GENERIC_FAILURE_MESSAGE)
+        }
+
+        var consecutiveFailedAttempts = 0
+        val maxAttempts = 3
+        try {
+            while (true) {
+                val now = SystemClock.elapsedRealtime()
+                _hosts.value = _hosts.value.filterValues {
+                    now - it.timestamp < HOST_EXPIRY.inWholeMilliseconds
+                }
+
+                Log.d(TAG, "Discover services")
+                val discoverServicesResult = awaitActionListener {
+                    manager.discoverServices(channel, it)
+                }
+                when (discoverServicesResult) {
+                    ActionListenerResult.Success -> consecutiveFailedAttempts = 0
+                    is ActionListenerResult.Failure -> {
+                        Log.d(
+                            TAG,
+                            "discoverServices failed with reason=${discoverServicesResult.reason} attempt=$consecutiveFailedAttempts"
+                        )
+                        if (++consecutiveFailedAttempts > maxAttempts) {
+                            return DiscoveryFailure(GENERIC_FAILURE_MESSAGE)
+                        }
+                    }
+                }
+                delay(DISCOVERY_INTERVAL)
+            }
+        } finally {
+            withContext(NonCancellable) {
+                awaitActionListener { manager.clearServiceRequests(channel, it) }
+            }
+        }
+    }
+
+    suspend fun connect(wifiDirectHost: Host): ConnectResult {
+
+        val config2 = WifiP2pConfig.Builder()
+            .setNetworkName(NETWORK_NAME)
+            .setPassphrase(PASSPHRASE)
+            .setDeviceAddress(MacAddress.fromString(wifiDirectHost.deviceAddress))
+            .build()
+        config2.groupOwnerIntent = 0
+
+        val config = WifiP2pConfig()
+        config.deviceAddress = wifiDirectHost.deviceAddress
+        config.groupOwnerIntent = 0
+
+        Log.d("TAG", "connect()")
+        when (val connectResult = awaitActionListener { manager.connect(channel, config, it) }) {
+            ActionListenerResult.Success -> Unit
+
+            is ActionListenerResult.Failure -> {
+                Log.d(TAG, "connect failed with reason=${connectResult.reason}")
+                return ConnectResult.Failure(connectResult.reason)
+            }
+        }
+
+        val success = currentHostAddress
+            .onEach { Log.d(TAG, "currentHostAddress $it") }
+            .filterNotNull()
+            .map { ConnectResult.Success(it) }
+
+        val failure = peers
+            .filter { peers -> peers.none { it.deviceAddress == wifiDirectHost.deviceAddress } }
+            .map { ConnectResult.Failure(1) }
+
+        return withTimeoutOrNull(CONNECT_TIMEOUT) {
+            merge(success, failure).first()
+        } ?: ConnectResult.Timeout
+    }
+
+    companion object {
+        private val HOST_EXPIRY = 15.seconds
+
+        private val DISCOVERY_INTERVAL = 3.seconds
+
+        private val CONNECT_TIMEOUT = 120.seconds
+    }
+}

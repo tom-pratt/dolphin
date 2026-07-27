@@ -2,23 +2,34 @@
 
 package org.dolphinemu.dolphinemu.features.netplay.model
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.asFlow
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.Channel.Factory.CONFLATED
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.dolphinemu.dolphinemu.features.netplay.NetplayManager
+import org.dolphinemu.dolphinemu.features.netplay.WifiDirectClientSession
+import org.dolphinemu.dolphinemu.features.netplay.WifiDirectHostSession.StartAdvertisingResult
+import org.dolphinemu.dolphinemu.features.netplay.WifiDirectManager
 import org.dolphinemu.dolphinemu.features.settings.model.BooleanSetting
 import org.dolphinemu.dolphinemu.features.settings.model.IntSetting
 import org.dolphinemu.dolphinemu.features.settings.model.NativeConfig
@@ -27,7 +38,10 @@ import org.dolphinemu.dolphinemu.services.GameFileCacheManager
 
 class NetplaySetupViewModel(
     private val netplayManager: NetplayManager,
+    private val wifiDirectManager: WifiDirectManager = WifiDirectManager,
 ) : ViewModel() {
+
+    private var discoverJob: Job? = null
 
     private val _connectionRole = MutableStateFlow<ConnectionRole>(ConnectionRole.Connect)
     val connectionRole = _connectionRole.asStateFlow()
@@ -64,12 +78,21 @@ class NetplaySetupViewModel(
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val errors = _errors.asSharedFlow()
 
+    private val _wifiDirectHostsSource =
+        MutableStateFlow(emptyFlow<List<WifiDirectClientSession.Host>>())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val wifiDirectHosts = _wifiDirectHostsSource
+        .flatMapLatest { it }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
+
     init {
         GameFileCacheManager.startLoad()
     }
 
     fun setConnectionRole(connectionRole: ConnectionRole) {
         _connectionRole.value = connectionRole
+        startOrStopWifiDirectAsClient()
     }
 
     fun setNickname(nickname: String) {
@@ -82,6 +105,7 @@ class NetplaySetupViewModel(
         StringSetting.NETPLAY_TRAVERSAL_CHOICE.setString(
             NativeConfig.LAYER_BASE, connectionType.configValue
         )
+        startOrStopWifiDirectAsClient()
     }
 
     fun setIpAddress(ipAddress: String) {
@@ -119,23 +143,68 @@ class NetplaySetupViewModel(
         BooleanSetting.NETPLAY_USE_UPNP.setBoolean(NativeConfig.LAYER_BASE, useUpnp)
     }
 
-    fun host() = connect(host = true)
+    fun host() = connect(host = true, wifiDirectHost = null)
 
-    fun connect(host: Boolean = false) {
+    fun connect() = connect(host = false, wifiDirectHost = null)
+
+    fun connect(wifiDirectHost: WifiDirectClientSession.Host) =
+        connect(host = false, wifiDirectHost = wifiDirectHost)
+
+    private fun connect(
+        host: Boolean,
+        wifiDirectHost: WifiDirectClientSession.Host?,
+    ) {
         if (_connecting.value) return
-
         _connecting.value = true
 
         viewModelScope.launch {
             var errorForwarding: Job? = null
 
             try {
+                if (_connectionType.value == ConnectionType.WifiDirect) {
+                    if (host) {
+                        val wifiDirectHostSession = wifiDirectManager.createHostSession()
+                        val result = wifiDirectHostSession.startAdvertising(_nickname.value)
+                        if (result is StartAdvertisingResult.Failure) {
+                            _errors.emit(WIFI_DIRECT_HOST_FAILURE_MESSAGE)
+                            wifiDirectHostSession.close()
+                            return@launch
+                        }
+                    } else if (wifiDirectHost != null) {
+                        val wifiDirectClientSession =
+                            wifiDirectManager.activeSession as? WifiDirectClientSession
+                                ?: return@launch
+
+                        stopWifiDirectDiscovery()
+
+                        when (val result = wifiDirectClientSession.connect(wifiDirectHost)) {
+                            is WifiDirectClientSession.ConnectResult.Success -> {
+                                StringSetting.NETPLAY_ADDRESS.setString(
+                                    NativeConfig.LAYER_BASE, result.groupOwnerAddress
+                                )
+                            }
+
+                            WifiDirectClientSession.ConnectResult.Timeout -> {
+                                _errors.emit(WIFI_DIRECT_TIMEOUT_MESSAGE)
+                                startWifiDirectDiscovery()
+                                return@launch
+                            }
+
+                            is WifiDirectClientSession.ConnectResult.Failure -> {
+                                _errors.emit(WIFI_DIRECT_FAILURE_MESSAGE)
+                                startWifiDirectDiscovery()
+                                return@launch
+                            }
+                        }
+                    }
+                }
+
                 GameFileCacheManager.isLoading().asFlow().first { it == false }
 
                 val session = netplayManager.createSession()
                 errorForwarding = session.connectionErrors
                     .onEach { _errors.emit(it) }
-                    .launchIn(this)
+                    .launchIn(viewModelScope)
 
                 val success = if (host) {
                     session.host()
@@ -152,17 +221,75 @@ class NetplaySetupViewModel(
         }
     }
 
+    private fun startOrStopWifiDirectAsClient() {
+        if (connectionRole.value == ConnectionRole.Connect &&
+            connectionType.value == ConnectionType.WifiDirect
+        ) {
+            viewModelScope.launch {
+                wifiDirectManager.createClientSession()
+                startWifiDirectDiscovery()
+            }
+        } else {
+            viewModelScope.launch {
+                stopWifiDirectDiscovery()
+                wifiDirectManager.activeSession?.close()
+            }
+        }
+    }
+
+    private fun startWifiDirectDiscovery() {
+        if (discoverJob?.isActive == true) return
+        discoverJob = viewModelScope.launch {
+            val wifiDirectClientSession = wifiDirectManager.activeSession as WifiDirectClientSession
+            _wifiDirectHostsSource.value = wifiDirectClientSession.hosts
+            val failure = wifiDirectClientSession.runDiscovery()
+            _errors.emit(failure.message)
+            setConnectionType(ConnectionType.DirectConnection)
+        }
+    }
+
+    private suspend fun stopWifiDirectDiscovery() {
+        val job = discoverJob ?: return
+        discoverJob = null
+        job.cancelAndJoin()
+    }
+
     override fun onCleared() {
-        super.onCleared()
         // There should not be an active session at this point but in case one was created
         // but launching the Netplay screen failed, close it.
         netplayManager.activeSession?.closeBlocking()
+
+        wifiDirectManager.activeSession?.let {
+            GlobalScope.launch {
+                it.close()
+            }
+        }
     }
 
-    class Factory(private val netplayManager: NetplayManager) : ViewModelProvider.Factory {
+    class Factory(
+        private val netplayManager: NetplayManager,
+        private val wifiDirectManager: WifiDirectManager,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return NetplaySetupViewModel(netplayManager) as T
+            return NetplaySetupViewModel(netplayManager, wifiDirectManager) as T
         }
+    }
+
+    private companion object {
+        /**
+         * A join times out most often because the joining device's Wi-Fi is associated in the same
+         * band as the host's group, which leaves no free radio chain for the P2P link. There is no
+         * way to detect that before attempting yet, so the message names the fix.
+         */
+        const val WIFI_DIRECT_TIMEOUT_MESSAGE =
+            "Could not connect to the host. Try disconnecting from your Wi-Fi network, or " +
+                "switching it to a different band, then connect again."
+
+        const val WIFI_DIRECT_FAILURE_MESSAGE =
+            "Could not connect to the host. Try again."
+
+        const val WIFI_DIRECT_HOST_FAILURE_MESSAGE =
+            "Could not setup WiFi direct."
     }
 }
