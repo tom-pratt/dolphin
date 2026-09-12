@@ -2,7 +2,6 @@
 
 package org.dolphinemu.dolphinemu.features.netplay.model
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.asFlow
@@ -42,6 +41,10 @@ class NetplaySetupViewModel(
 ) : ViewModel() {
 
     private var discoverJob: Job? = null
+    private var connectJob: Job? = null
+
+    private val wifiDirectClientSession: WifiDirectClientSession?
+        get() = wifiDirectManager.activeSession as? WifiDirectClientSession
 
     private val _connectionRole = MutableStateFlow<ConnectionRole>(ConnectionRole.Connect)
     val connectionRole = _connectionRole.asStateFlow()
@@ -80,6 +83,9 @@ class NetplaySetupViewModel(
 
     private val _wifiDirectHostsSource =
         MutableStateFlow(emptyFlow<List<WifiDirectClientSession.Host>>())
+
+    private val isInWifiDirectClientMode
+        get() = connectionRole.value == ConnectionRole.Connect && connectionType.value == ConnectionType.WifiDirect
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val wifiDirectHosts = _wifiDirectHostsSource
@@ -150,14 +156,25 @@ class NetplaySetupViewModel(
     fun connect(wifiDirectHost: WifiDirectClientSession.Host) =
         connect(host = false, wifiDirectHost = wifiDirectHost)
 
+    fun onScreenVisible() {
+        startWifiDirectDiscovery()
+    }
+
+    fun onScreenHidden() {
+        viewModelScope.launch {
+            stopWifiDirectDiscovery()
+        }
+    }
+
     private fun connect(
         host: Boolean,
         wifiDirectHost: WifiDirectClientSession.Host?,
     ) {
+        if (connectJob?.isActive == true) return
         if (_connecting.value) return
         _connecting.value = true
 
-        viewModelScope.launch {
+        connectJob = viewModelScope.launch {
             var errorForwarding: Job? = null
 
             try {
@@ -213,6 +230,12 @@ class NetplaySetupViewModel(
                 }
                 if (success) {
                     _showNetplayScreen.trySend(Unit)
+                } else {
+                    // Reset wifi direct state in the event that wifi direct connects but netplay fails.
+                    if (isInWifiDirectClientMode) {
+                        wifiDirectClientSession?.clearGroupAndPeers()
+                        startWifiDirectDiscovery()
+                    }
                 }
             } finally {
                 errorForwarding?.cancel()
@@ -222,15 +245,14 @@ class NetplaySetupViewModel(
     }
 
     private fun startOrStopWifiDirectAsClient() {
-        if (connectionRole.value == ConnectionRole.Connect &&
-            connectionType.value == ConnectionType.WifiDirect
-        ) {
+        if (isInWifiDirectClientMode) {
             viewModelScope.launch {
                 wifiDirectManager.createClientSession()
                 startWifiDirectDiscovery()
             }
         } else {
             viewModelScope.launch {
+                stopConnecting()
                 stopWifiDirectDiscovery()
                 wifiDirectManager.activeSession?.close()
             }
@@ -239,10 +261,13 @@ class NetplaySetupViewModel(
 
     private fun startWifiDirectDiscovery() {
         if (discoverJob?.isActive == true) return
+        if (!isInWifiDirectClientMode) return
+        val session = wifiDirectClientSession ?: return
+
+        _wifiDirectHostsSource.value = session.hosts
+
         discoverJob = viewModelScope.launch {
-            val wifiDirectClientSession = wifiDirectManager.activeSession as WifiDirectClientSession
-            _wifiDirectHostsSource.value = wifiDirectClientSession.hosts
-            val failure = wifiDirectClientSession.runDiscovery()
+            val failure = session.runDiscovery()
             _errors.emit(failure.message)
             setConnectionType(ConnectionType.DirectConnection)
         }
@@ -251,6 +276,12 @@ class NetplaySetupViewModel(
     private suspend fun stopWifiDirectDiscovery() {
         val job = discoverJob ?: return
         discoverJob = null
+        job.cancelAndJoin()
+    }
+
+    private suspend fun stopConnecting() {
+        val job = connectJob ?: return
+        connectJob = null
         job.cancelAndJoin()
     }
 

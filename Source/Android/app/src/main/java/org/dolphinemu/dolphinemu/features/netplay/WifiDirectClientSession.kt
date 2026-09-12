@@ -1,7 +1,6 @@
 package org.dolphinemu.dolphinemu.features.netplay
 
 import android.app.Application
-import android.net.MacAddress
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pManager
 import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest
@@ -89,15 +88,6 @@ class WifiDirectClientSession(
      * error occurs.
      */
     suspend fun runDiscovery(): DiscoveryFailure {
-        when (val groupPreparationResult = clearGroup()) {
-            ClearGroupResult.Success -> Unit
-            is ClearGroupResult.FailedToRemoveDolphinGroup -> return DiscoveryFailure(
-                GENERIC_FAILURE_MESSAGE
-            )
-
-            is ClearGroupResult.ExistingNonDolphinGroup -> return DiscoveryFailure("WiFi direct is being used by another app (${groupPreparationResult.networkName}).")
-        }
-
         val serviceRequest = WifiP2pDnsSdServiceRequest.newInstance()
         val addServiceRequestResult =
             awaitActionListener { manager.addServiceRequest(channel, serviceRequest, it) }
@@ -145,16 +135,13 @@ class WifiDirectClientSession(
         val config2 = WifiP2pConfig.Builder()
             .setNetworkName(NETWORK_NAME)
             .setPassphrase(PASSPHRASE)
-            .setDeviceAddress(MacAddress.fromString(wifiDirectHost.deviceAddress))
             .build()
-        config2.groupOwnerIntent = 0
 
         val config = WifiP2pConfig()
         config.deviceAddress = wifiDirectHost.deviceAddress
-        config.groupOwnerIntent = 0
 
         Log.d("TAG", "connect()")
-        when (val connectResult = awaitActionListener { manager.connect(channel, config, it) }) {
+        when (val connectResult = awaitActionListener { manager.connect(channel, config2, it) }) {
             ActionListenerResult.Success -> Unit
 
             is ActionListenerResult.Failure -> {
@@ -178,7 +165,7 @@ class WifiDirectClientSession(
     }
 
     companion object {
-        private val HOST_EXPIRY = 15.seconds
+        private val HOST_EXPIRY = 8.seconds
 
         private val DISCOVERY_INTERVAL = 3.seconds
 

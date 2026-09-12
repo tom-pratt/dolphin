@@ -5,12 +5,14 @@ package org.dolphinemu.dolphinemu.features.netplay.ui
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.launchIn
@@ -42,6 +44,15 @@ class NetplaySetupActivity : AppCompatActivity(), ThemeProvider {
 
         setContent {
             DolphinTheme {
+                LifecycleStartEffect(Unit) {
+                    Log.d("TOMMO", "onStart")
+                    viewModel.onScreenVisible()
+                    onStopOrDispose {
+                        Log.d("TOMMO", "onStop")
+                        viewModel.onScreenHidden()
+                    }
+                }
+
                 NetplaySetupScreen(
                     onBackClicked = { finish() },
                     connecting = viewModel.connecting.collectAsState().value,

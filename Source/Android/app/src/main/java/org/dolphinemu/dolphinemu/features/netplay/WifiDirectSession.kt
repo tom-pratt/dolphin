@@ -97,7 +97,7 @@ abstract class WifiDirectSession(
 
         withContext(NonCancellable) {
             onClose()
-            clearGroup()
+            clearGroupAndPeers()
             channel.close() //TODO measure how long this takes
             application.unregisterReceiver(this@WifiDirectSession)
             wifiLock.release()
@@ -105,47 +105,9 @@ abstract class WifiDirectSession(
         }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun fetchExistingGroup() {
-        manager.requestGroupInfo(channel) { group: WifiP2pGroup? ->
-            _currentGroup.tryEmit(group)
-        }
-    }
-
-    protected sealed interface ClearGroupResult {
-        data object Success : ClearGroupResult
-        data object FailedToRemoveDolphinGroup : ClearGroupResult
-        data class ExistingNonDolphinGroup(val networkName: String) : ClearGroupResult
-    }
-
-    protected suspend fun clearGroup(): ClearGroupResult {
-        fetchExistingGroup()
-
-        //withTimeout due to the break scenario
-        return currentGroupNetworkName
-            .transformLatest { current ->
-                when (current) {
-                    null -> emit(ClearGroupResult.Success)
-
-                    else -> {//NETWORK_NAME, "DIRECT-dolphin-netplay", "DIRECT-bb-dolphin-netplay" -> {
-                        // Attempt to remove stale dolphin group. Note that, similar to all WifiP2p
-                        // ActionListeners, success does not indicate the group was removed. only
-                        // that the request succeeded. Hence, the timeout since we are still waiting
-                        // for a null group to come through.
-                        repeat(3) {
-                            val removeGroupResult =
-                                awaitActionListener { manager.removeGroup(channel, it) }
-                            when (removeGroupResult) {
-                                ActionListenerResult.Success -> delay(10.seconds)
-                                is ActionListenerResult.Failure -> delay(2.seconds)
-                            }
-                        }
-                        emit(ClearGroupResult.FailedToRemoveDolphinGroup)
-                    }
-
-//                    else -> emit(GroupPreparationResult.ExistingNonDolphinGroup(current))
-                }
-            }.first()
+    suspend fun clearGroupAndPeers() {
+        awaitActionListener { manager.removeGroup(channel, it) }
+        awaitActionListener { manager.stopPeerDiscovery(channel, it) }
     }
 
     override fun onReceive(context: Context, intent: Intent) {

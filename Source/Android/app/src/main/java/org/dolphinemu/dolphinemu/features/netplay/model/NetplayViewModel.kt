@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.dolphinemu.dolphinemu.features.netplay.NetplaySession
+import org.dolphinemu.dolphinemu.features.netplay.WifiDirectClientSession
 import org.dolphinemu.dolphinemu.features.netplay.WifiDirectHostSession
 import org.dolphinemu.dolphinemu.features.netplay.WifiDirectManager
 import org.dolphinemu.dolphinemu.features.netplay.model.ControllerMapping.Companion.emptyControllerMapping
@@ -38,6 +39,8 @@ class NetplayViewModel(
 ) : ViewModel() {
 
     private val wifiDirectSession = wifiDirectManager.activeSession
+
+    private val wifiDirectClientSession: WifiDirectClientSession? = wifiDirectSession as? WifiDirectClientSession
 
     private val wifiDirectHostSession: WifiDirectHostSession? = wifiDirectSession as? WifiDirectHostSession
 
@@ -254,6 +257,7 @@ class NetplayViewModel(
         // GlobalScope and allow the activity and view model to finish immediately.
         GlobalScope.launch {
             netplaySession.close()
+            wifiDirectClientSession?.clearGroupAndPeers()
             wifiDirectHostSession?.close()
         }
     }

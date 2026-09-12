@@ -31,17 +31,6 @@ class WifiDirectHostSession(
     @RequiresApi(Build.VERSION_CODES.Q)
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.NEARBY_WIFI_DEVICES])
     suspend fun startAdvertising(hostName: String): StartAdvertisingResult {
-        when (val clearGroupResult = clearGroup()) {
-            ClearGroupResult.Success -> Unit
-
-            is ClearGroupResult.FailedToRemoveDolphinGroup -> return StartAdvertisingResult.Failure(
-                GENERIC_FAILURE_MESSAGE
-            )
-
-            is ClearGroupResult.ExistingNonDolphinGroup -> return StartAdvertisingResult.Failure(
-                "WiFi direct is being used by another app (${clearGroupResult.networkName})."
-            )
-        }
 
         wifiLock.acquire()
 
@@ -59,13 +48,6 @@ class WifiDirectHostSession(
             Log.d(TAG, "addLocalService failed with reason=${addLocalServiceResult.reason}")
             return StartAdvertisingResult.Failure(GENERIC_FAILURE_MESSAGE)
         }
-
-//        //TODO if api 33 use startListening else discoverPeers
-//        val startListeningResult = awaitActionListener { manager.startListening(channel, it) }
-//        if (startListeningResult is ActionListenerResult.Failure) {
-//            Log.d(TAG, "startListening failed with reason=${startListeningResult.reason}")
-//            return StartAdvertisingResult.Failure(GENERIC_FAILURE_MESSAGE)
-//        }
 
         val configBuilder = WifiP2pConfig.Builder()
             .setNetworkName(NETWORK_NAME)
