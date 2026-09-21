@@ -1067,6 +1067,7 @@ It can efficiently compress both junk data and encrypted Wii data.
     <string name="netplay_wifi_direct_discovery_failure">WiFi direct discovery failed. Try turning WiFi off and on in settings.</string>
     <string name="netplay_wifi_direct_connect_failure">Could not connect to host via WiFi direct. Try turning WiFi off and on in settings.</string>
     <string name="netplay_wifi_direct_host_failure">Could not setup WiFi direct hosting. Try turning WiFi off and on in settings.</string>
+    <string name="netplay_wifi_direct_group_lost">Wifi direct connection lost</string>
     <string name="netplay_wifi_direct_nearby_devices_permission_denied">Wifi direct needs the nearby devices permission to connect to devices near to you.</string>
     <string name="netplay_wifi_direct_location_permission_denied">Wifi direct needs the location permission to connect to devices near to you.</string>
     <string name="netplay_give_permission">Give permission</string>
