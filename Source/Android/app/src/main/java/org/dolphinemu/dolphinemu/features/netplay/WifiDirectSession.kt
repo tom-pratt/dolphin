@@ -158,7 +158,7 @@ abstract class WifiDirectSession(
     companion object {
         protected const val NETWORK_NAME = "DIRECT-%s-dolphin-netplay"
 
-        protected const val PASSPHRASE = "dolphinnetplay"
+        const val PASSPHRASE = "dolphinnetplay"
 
         protected const val SERVICE_TYPE = "_dolphinnetplay._tcp"
 
