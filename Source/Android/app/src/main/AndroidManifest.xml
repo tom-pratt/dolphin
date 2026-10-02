@@ -66,6 +66,19 @@
         </activity>
 
         <activity
+            android:name=".ui.mainv2.MainV2Activity"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_v2"
+            android:theme="@style/Theme.Dolphin.Main">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".ui.main.TvMainActivity"
             android:exported="true"
             android:theme="@style/Theme.Dolphin.Splash.TV">
