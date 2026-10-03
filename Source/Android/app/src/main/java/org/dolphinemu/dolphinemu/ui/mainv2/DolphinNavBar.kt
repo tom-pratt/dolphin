@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
@@ -31,14 +30,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Immutable
@@ -62,19 +63,33 @@ private val ItemSize = 52.dp
 private val ItemSpacing = 12.dp
 private val PillPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
 private val GroupSpacing = 10.dp
-private const val HighlightAlpha = 0.2f
 
 private val BarElevation = 6.dp
-
 private const val PanelStrokeAlpha = 0f
 private val PanelStrokeWidth = 1.dp
 
+private val IsLight @Composable get() = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+private val PanelColor @Composable get() =
+    if (IsLight) {
+        MaterialTheme.colorScheme.surfaceContainerHighest
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+private val ContentColor @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+private val HighlightColor @Composable get() =
+    if (IsLight) MaterialTheme.colorScheme.secondaryFixedDim else MaterialTheme.colorScheme.secondaryContainer
+private const val HighlightAlpha = 1f// 0.6f
+private val SelectedContentColor @Composable get() = MaterialTheme.colorScheme.onSecondaryContainer
+
+private val PanelStrokeColor @Composable get() = MaterialTheme.colorScheme.primary
+
 /**
- * Floating bottom bar: a pill of tabs with a sliding selection indicator, followed by
- * any number of circular action buttons.
+ * Floating bottom bar: a pill of tabs, each with its own selection highlight that crossfades to
+ * its neighbour's as the selection moves, followed by any number of circular action buttons.
  *
  * @param selectedTabPosition fractional position of the selected tab (e.g. pager page + offset
- *   fraction), read only during layout so the indicator can track a swipe without recomposing.
+ *   fraction), read only during drawing so the highlights can track a swipe without recomposing.
  */
 @Composable
 fun DolphinNavBar(
@@ -109,28 +124,23 @@ private fun TabPill(
 
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = PanelColor,
         shadowElevation = BarElevation,
-        border = BorderStroke(PanelStrokeWidth, MaterialTheme.colorScheme.primary.copy(alpha = PanelStrokeAlpha)),
+        border = BorderStroke(PanelStrokeWidth, PanelStrokeColor.copy(alpha = PanelStrokeAlpha)),
     ) {
-        Box(Modifier.padding(PillPadding)) {
-            Box(
-                Modifier
-                    .offset {
-                        val position = selectedTabPosition().coerceIn(0f, tabs.lastIndex.toFloat())
-                        IntOffset(((ItemSize + ItemSpacing).toPx() * position).roundToInt(), 0)
-                    }
-                    .size(ItemSize)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = HighlightAlpha), CircleShape)
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(ItemSpacing)) {
-                tabs.forEachIndexed { index, tab ->
-                    TabItem(
-                        tab = tab,
-                        selected = index == selectedIndex,
-                        onClick = { onTabClick(index) },
-                    )
-                }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(ItemSpacing),
+            modifier = Modifier.padding(PillPadding)
+        ) {
+            tabs.forEachIndexed { index, tab ->
+                TabItem(
+                    tab = tab,
+                    selected = index == selectedIndex,
+                    highlightFraction = {
+                        (1f - abs(selectedTabPosition() - index)).coerceIn(0f, 1f)
+                    },
+                    onClick = { onTabClick(index) },
+                )
             }
         }
     }
@@ -140,14 +150,12 @@ private fun TabPill(
 private fun TabItem(
     tab: DolphinNavTab,
     selected: Boolean,
+    highlightFraction: () -> Float,
     onClick: () -> Unit,
 ) {
+    val highlightColor = HighlightColor
     val contentColor by animateColorAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
+        targetValue = if (selected) SelectedContentColor else ContentColor,
         animationSpec = tween(250),
         label = "tabContentColor",
     )
@@ -156,6 +164,9 @@ private fun TabItem(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(ItemSize)
+            .drawBehind {
+                drawCircle(highlightColor.copy(alpha = HighlightAlpha * highlightFraction()))
+            }
             .clip(CircleShape)
             .semantics { contentDescription = tab.label }
             .selectable(selected = selected, onClick = onClick, role = Role.Tab)
@@ -170,7 +181,7 @@ private fun TabItem(
 private fun ActionButton(action: DolphinNavAction) {
     val indicatorColor by animateColorAsState(
         targetValue = if (action.active) {
-            MaterialTheme.colorScheme.primary.copy(alpha = HighlightAlpha)
+            HighlightColor.copy(alpha = HighlightAlpha)
         } else {
             Color.Transparent
         },
@@ -178,20 +189,16 @@ private fun ActionButton(action: DolphinNavAction) {
         label = "actionIndicatorColor",
     )
     val contentColor by animateColorAsState(
-        targetValue = if (action.active) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
+        targetValue = if (action.active) SelectedContentColor else ContentColor,
         animationSpec = tween(200),
         label = "actionContentColor",
     )
 
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = PanelColor,
         shadowElevation = BarElevation,
-        border = BorderStroke(PanelStrokeWidth, MaterialTheme.colorScheme.primary.copy(alpha = PanelStrokeAlpha)),
+        border = BorderStroke(PanelStrokeWidth, PanelStrokeColor.copy(alpha = PanelStrokeAlpha)),
         modifier = Modifier.size(BarHeight),
     ) {
         Box(contentAlignment = Alignment.Center) {

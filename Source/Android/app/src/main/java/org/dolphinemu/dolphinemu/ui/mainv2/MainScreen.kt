@@ -25,16 +25,16 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,31 +50,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
@@ -88,9 +83,11 @@ import org.dolphinemu.dolphinemu.ui.theme.DolphinTheme.scaffoldPadding
 import org.dolphinemu.dolphinemu.ui.theme.PreviewTheme
 import org.dolphinemu.dolphinemu.utils.CoilUtils
 
-private const val ScrimEnabled = false
+private const val ScrimEnabled = true
 private val ScrimFadeHeight = 0.dp
-private const val ScrimMinContentAlpha = 0.05f
+private const val ScrimMinContentAlpha = 0.00f
+// Portion of the scrim, from its top, that the fade spans. Below that content is fully faded.
+private const val ScrimFadeFraction = 0.6f
 
 // How strongly content is faded, from none at the top of the scrim to full at the bottom. Many
 // stops along an easing curve, so the fade has no visible edge where it starts and ends.
@@ -105,10 +102,6 @@ private val ScrimFadeStops = Array(16) { i ->
     )
 }
 
-// The same profile by distance from a bottom corner of the bar, for the rounded ends.
-private val ScrimEndFadeStops =
-    ScrimFadeStops.reversedArray().map { (t, color) -> (1f - t) to color }.toTypedArray()
-
 @Composable
 fun MainScreen(
     gameFiles: Map<PlatformTab, List<GameFile>>,
@@ -117,12 +110,11 @@ fun MainScreen(
     val tabs = PlatformTab.entries
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
-    var navBarBounds by remember { mutableStateOf(Rect.Zero) }
     var moreMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = {
                     Text(
                         text = "Dolphin",
@@ -134,17 +126,7 @@ fun MainScreen(
                 },
                 navigationIcon = {
                     Image(
-                        painter = painterResource(R.drawable.ic_dolphin),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .size(64.dp)
-                            .scale(scaleX = -1f, scaleY = 1f)
-                    )
-                },
-                actions = {
-                    Image(
-                        painter = painterResource(R.drawable.ic_dolphin),
+                        painter = painterResource(R.drawable.ic_dolphin_tertiary),
                         contentDescription = null,
                         modifier = Modifier
                             .padding(16.dp)
@@ -159,7 +141,18 @@ fun MainScreen(
                 tabs = tabs.map { tab ->
                     DolphinNavTab(
                         label = stringResource(tab.headerName),
-                        icon = { PlatformTabIcon(tab) },
+                        icon = {
+                            Icon(
+                                painter = painterResource(
+                                    when (tab) {
+                                        PlatformTab.GAMECUBE -> R.drawable.ic_gamecube
+                                        PlatformTab.WII -> R.drawable.ic_wii
+                                        PlatformTab.WIIWARE -> R.drawable.ic_folder
+                                    }
+                                ),
+                                contentDescription = null,
+                            )
+                        },
                     )
                 },
                 selectedTabPosition = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
@@ -181,9 +174,8 @@ fun MainScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(bottom = 8.dp)
+                    .padding(vertical = 8.dp)
                     .wrapContentWidth()
-                    .onGloballyPositioned { navBarBounds = it.boundsInRoot() }
             )
         },
         modifier = Modifier
@@ -196,10 +188,7 @@ fun MainScreen(
                 .consumeWindowInsets(innerPadding)
                 .then(
                     if (ScrimEnabled) {
-                        Modifier.navBarScrim(
-                            navBarBounds = { navBarBounds },
-                            bottomPadding = innerPadding.calculateBottomPadding(),
-                        )
+                        Modifier.navBarScrim(bottomPadding = innerPadding.calculateBottomPadding())
                     } else {
                         Modifier
                     }
@@ -215,45 +204,24 @@ fun MainScreen(
     }
 }
 
-/**
- * Fades the content behind the nav bar: a vertical fade across the bar's width, with a radial
- * fade around each bottom corner so it rounds off a little beyond the bar's ends.
- */
-private fun Modifier.navBarScrim(navBarBounds: () -> Rect, bottomPadding: Dp): Modifier = this
+/** Fades the content behind the nav bar with a full-width vertical fade. */
+private fun Modifier.navBarScrim(bottomPadding: Dp): Modifier = this
     // Offscreen so DstOut fades only this layout's own pixels, not what's behind it.
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
-        val bar = navBarBounds()
-        if (bar.isEmpty) return@drawWithContent
-
         val scrimHeight = (bottomPadding + ScrimFadeHeight).toPx()
         val scrimTop = size.height - scrimHeight
         drawRect(
             brush = Brush.verticalGradient(
                 *ScrimFadeStops,
                 startY = scrimTop,
-                endY = size.height,
+                endY = scrimTop + scrimHeight * ScrimFadeFraction,
             ),
-            topLeft = Offset(bar.left, scrimTop),
-            size = Size(bar.width, scrimHeight),
+            topLeft = Offset(0f, scrimTop),
+            size = Size(size.width, scrimHeight),
             blendMode = BlendMode.DstOut,
         )
-        for ((cornerX, endLeft) in listOf(
-            bar.left to bar.left - scrimHeight,
-            bar.right to bar.right
-        )) {
-            drawRect(
-                brush = Brush.radialGradient(
-                    *ScrimEndFadeStops,
-                    center = Offset(cornerX, size.height),
-                    radius = scrimHeight,
-                ),
-                topLeft = Offset(endLeft, scrimTop),
-                size = Size(scrimHeight, scrimHeight),
-                blendMode = BlendMode.DstOut,
-            )
-        }
     }
 
 private class MoreMenuItem(val label: Int, val icon: @Composable () -> Painter)
@@ -306,19 +274,6 @@ private fun MoreMenu(
 }
 
 @Composable
-private fun PlatformTabIcon(tab: PlatformTab) {
-    val icon = when (tab) {
-        PlatformTab.GAMECUBE -> R.drawable.ic_gamecube
-        PlatformTab.WII -> R.drawable.ic_wii
-        PlatformTab.WIIWARE -> R.drawable.ic_folder
-    }
-    Icon(
-        painter = painterResource(icon),
-        contentDescription = null,
-    )
-}
-
-@Composable
 private fun GameList(
     gameFiles: List<GameFile>,
     onGameSelected: (GameFile) -> Unit,
@@ -326,10 +281,10 @@ private fun GameList(
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 120.dp),
-        contentPadding = contentPadding + PaddingValues(horizontal = scaffoldPadding),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        columns = GridCells.Adaptive(minSize = 100.dp),
+        contentPadding = contentPadding + PaddingValues(horizontal = scaffoldPadding) + PaddingValues(top = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
         modifier = modifier
     ) {
         items(gameFiles, key = { it.getPath() }) { gameFile ->
@@ -348,6 +303,7 @@ private fun GameGridItem(
 ) {
     Card(
         onClick = onClick,
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
     ) {
         Column {
             AsyncImage(
