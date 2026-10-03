@@ -53,6 +53,8 @@ class DolphinNavAction(
     val icon: ImageVector,
     val onClick: () -> Unit,
     val active: Boolean = false,
+    /** Optional popup (e.g. a DropdownMenu) anchored to this action's button. */
+    val popup: (@Composable () -> Unit)? = null,
 )
 
 private val BarHeight = 64.dp
@@ -208,6 +210,7 @@ private fun ActionButton(action: DolphinNavAction) {
                     tint = contentColor,
                 )
             }
+            action.popup?.invoke()
         }
     }
 }

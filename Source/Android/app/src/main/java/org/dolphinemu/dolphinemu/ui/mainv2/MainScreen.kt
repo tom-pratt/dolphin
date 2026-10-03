@@ -16,15 +16,24 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -51,6 +60,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -63,6 +74,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
@@ -106,6 +118,7 @@ fun MainScreen(
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
     var navBarBounds by remember { mutableStateOf(Rect.Zero) }
+    var moreMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -155,7 +168,14 @@ fun MainScreen(
                     DolphinNavAction(
                         label = stringResource(R.string.more_options),
                         icon = Icons.Filled.MoreVert,
-                        onClick = {},
+                        onClick = { moreMenuExpanded = !moreMenuExpanded },
+                        active = moreMenuExpanded,
+                        popup = {
+                            MoreMenu(
+                                expanded = moreMenuExpanded,
+                                onDismissRequest = { moreMenuExpanded = false },
+                            )
+                        },
                     )
                 ),
                 modifier = Modifier
@@ -236,6 +256,55 @@ private fun Modifier.navBarScrim(navBarBounds: () -> Rect, bottomPadding: Dp): M
         }
     }
 
+private class MoreMenuItem(val label: Int, val icon: @Composable () -> Painter)
+
+private val MoreMenuItems = listOf(
+    MoreMenuItem(R.string.grid_menu_about) { rememberVectorPainter(Icons.Filled.Info) },
+    MoreMenuItem(R.string.more_menu_add_games) { rememberVectorPainter(Icons.Filled.Add) },
+    MoreMenuItem(R.string.more_menu_view_options) { rememberVectorPainter(Icons.Outlined.GridView) },
+    MoreMenuItem(R.string.more_menu_wii_system) { painterResource(R.drawable.ic_wii) },
+    MoreMenuItem(R.string.grid_menu_netplay) { rememberVectorPainter(Icons.Filled.People) },
+    MoreMenuItem(R.string.grid_menu_settings) { rememberVectorPainter(Icons.Filled.Settings) },
+)
+
+/** Popup menu that opens upward from the nav bar's more action. Items aren't hooked up yet. */
+@Composable
+private fun MoreMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        // Negative so the upward-opening menu sits 12dp above the button.
+        offset = DpOffset(0.dp, (-12).dp),
+        shape = RoundedCornerShape(12.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.widthIn(min = 200.dp),
+    ) {
+        MoreMenuItems.forEach { item ->
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = stringResource(item.label),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        painter = item.icon(),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
+                onClick = onDismissRequest,
+                contentPadding = PaddingValues(horizontal = 18.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun PlatformTabIcon(tab: PlatformTab) {
     val icon = when (tab) {
@@ -257,7 +326,7 @@ private fun GameList(
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 100.dp),
+        columns = GridCells.Adaptive(minSize = 120.dp),
         contentPadding = contentPadding + PaddingValues(horizontal = scaffoldPadding),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -293,15 +362,15 @@ private fun GameGridItem(
                     .fillMaxWidth()
                     .aspectRatio(0.7f)
             )
-            Text(
-                text = gameFile.getTitle(),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
-                minLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .padding(8.dp)
-            )
+//            Text(
+//                text = gameFile.getTitle(),
+//                style = MaterialTheme.typography.bodySmall,
+//                maxLines = 2,
+//                minLines = 2,
+//                overflow = TextOverflow.Ellipsis,
+//                modifier = Modifier
+//                    .padding(8.dp)
+//            )
         }
     }
 }

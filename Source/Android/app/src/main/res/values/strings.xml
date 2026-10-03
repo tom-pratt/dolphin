@@ -518,6 +518,9 @@
     <string name="grid_menu_load_wii_system_menu_installed">Load Wii System Menu (%s)</string>
     <string name="grid_menu_load_vwii_system_menu_installed">Load vWii System Menu (%s)</string>
     <string name="grid_menu_about">About</string>
+    <string name="more_menu_add_games">Add games</string>
+    <string name="more_menu_view_options">View options</string>
+    <string name="more_menu_wii_system">Wii system</string>
     <string name="import_in_progress">Importing…</string>
     <string name="export_in_progress">Exporting…</string>
     <string name="do_not_close_app">Do not close the app!</string>
