@@ -62,6 +62,11 @@ abstract class WifiDirectSession(
         .map { it?.networkName }
         .distinctUntilChanged()
 
+    @SuppressLint("NewApi")
+    protected val currentGroupFrequency = _currentGroup
+        .map { it?.frequency }
+        .distinctUntilChanged()
+
     protected val currentHostAddress = _currentWifiP2pInfo
         .map { it?.groupOwnerAddress?.hostAddress }
         .distinctUntilChanged()

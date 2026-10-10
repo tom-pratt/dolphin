@@ -157,6 +157,7 @@ fun NetplayScreen(
     onGamecubePortChanged: (port: Int, player: Player?) -> Unit,
     onWiiRemoteChanged: (port: Int, player: Player?) -> Unit,
     wifiDirectGroupLost: Flow<Unit>,
+    wifiDirectFrequencyClash: Flow<Unit>,
 ) {
     val scrollState = rememberScrollState()
 
@@ -301,6 +302,11 @@ fun NetplayScreen(
             wifiDirectGroupLost.collect { showWifiDirectGroupLostDialog = true }
         }
 
+        var showWifiDirectFrequencyClashDialog by rememberSaveable { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            wifiDirectFrequencyClash.collect { showWifiDirectFrequencyClashDialog = true }
+        }
+
         when {
             showConnectionLostDialog -> {
                 AlertDialog(
@@ -385,6 +391,20 @@ fun NetplayScreen(
                         }
                     },
                     onDismissRequest = onBackClicked,
+                )
+            }
+
+            showWifiDirectFrequencyClashDialog -> {
+                AlertDialog(
+                    text = { Text(stringResource(R.string.netplay_wifi_direct_frequency_clash)) },
+                    confirmButton = {
+                        TextButton(onClick = { showWifiDirectFrequencyClashDialog = false }) {
+                            Text(stringResource(R.string.ok))
+                        }
+                    },
+                    onDismissRequest = {
+                        showWifiDirectFrequencyClashDialog = false
+                    },
                 )
             }
         }
@@ -1761,6 +1781,7 @@ private fun PreviewNetplayScreen() {
         onGamecubePortChanged = { _, _ -> },
         onWiiRemoteChanged = { _, _ -> },
         wifiDirectGroupLost = emptyFlow(),
+        wifiDirectFrequencyClash = emptyFlow(),
 //        saveTransferProgress = SaveTransferProgress(
 //            title = "Title",
 //            totalSize = 1024L,

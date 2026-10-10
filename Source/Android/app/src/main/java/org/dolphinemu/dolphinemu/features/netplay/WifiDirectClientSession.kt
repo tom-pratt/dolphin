@@ -49,6 +49,8 @@ class WifiDirectClientSession(
             }
     }
 
+    suspend fun frequency() = currentGroupFrequency.filterNotNull().first()
+
     init {
         val txtListener = WifiP2pManager.DnsSdTxtRecordListener { fullDomain, record, device ->
             if (fullDomain.contains(SERVICE_TYPE)) {

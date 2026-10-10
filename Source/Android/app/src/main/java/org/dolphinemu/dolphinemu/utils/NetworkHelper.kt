@@ -5,6 +5,9 @@ package org.dolphinemu.dolphinemu.utils
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkAddress
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
+import android.os.Build
 import androidx.annotation.Keep
 import org.dolphinemu.dolphinemu.DolphinApplication
 import java.net.Inet4Address
@@ -80,4 +83,19 @@ object NetworkHelper {
     fun getLocalIpString(): String? {
         return getIPv4Link()?.address?.hostAddress
     }
+
+    fun getWifiFrequency(): Int? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val manager = getConnectivityManager()
+            val capabilities =
+                manager?.activeNetwork?.let { manager.getNetworkCapabilities(it) }
+            capabilities?.transportInfo as? WifiInfo
+        } else {
+            val wifiManager = DolphinApplication.getAppContext()
+                .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            wifiManager?.connectionInfo
+        }
+            ?.frequency?.takeIf { it > 0 }
+    }
+
 }

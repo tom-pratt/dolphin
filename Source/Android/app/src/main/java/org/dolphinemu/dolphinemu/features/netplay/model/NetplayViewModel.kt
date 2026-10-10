@@ -44,9 +44,11 @@ class NetplayViewModel(
 
     private val wifiDirectSession = wifiDirectManager.activeSession
 
-    private val wifiDirectClientSession: WifiDirectClientSession? = wifiDirectSession as? WifiDirectClientSession
+    private val wifiDirectClientSession: WifiDirectClientSession? =
+        wifiDirectSession as? WifiDirectClientSession
 
-    private val wifiDirectHostSession: WifiDirectHostSession? = wifiDirectSession as? WifiDirectHostSession
+    private val wifiDirectHostSession: WifiDirectHostSession? =
+        wifiDirectSession as? WifiDirectHostSession
 
     private val isTraversal = StringSetting.NETPLAY_TRAVERSAL_CHOICE.string == "traversal"
 
@@ -117,6 +119,9 @@ class NetplayViewModel(
     private val _wifiDirectGroupLost = Channel<Unit>(Channel.CONFLATED)
     val wifiDirectGroupLost = _wifiDirectGroupLost.receiveAsFlow()
 
+    private val _wifiDirectFrequencyClash = Channel<Unit>(Channel.CONFLATED)
+    val wifiDirectFrequencyClash = _wifiDirectFrequencyClash.receiveAsFlow()
+
     init {
         if (netplaySession.isHosting) {
             setInitialGame()
@@ -156,6 +161,14 @@ class NetplayViewModel(
                 )
             }
                 .launchIn(viewModelScope)
+        }
+
+        if (wifiDirectClientSession != null) {
+            viewModelScope.launch {
+                if (networkHelper.getWifiFrequency() == wifiDirectClientSession.frequency()) {
+                    _wifiDirectFrequencyClash.send(Unit)
+                }
+            }
         }
     }
 

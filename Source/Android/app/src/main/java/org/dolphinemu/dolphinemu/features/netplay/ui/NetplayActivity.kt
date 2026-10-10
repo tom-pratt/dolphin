@@ -80,6 +80,7 @@ class NetplayActivity : AppCompatActivity(), ThemeProvider {
                     onGamecubePortChanged = viewModel::setGamecubePort,
                     onWiiRemoteChanged = viewModel::setWiiRemote,
                     wifiDirectGroupLost = viewModel.wifiDirectGroupLost,
+                    wifiDirectFrequencyClash = viewModel.wifiDirectFrequencyClash,
                 )
             }
         }

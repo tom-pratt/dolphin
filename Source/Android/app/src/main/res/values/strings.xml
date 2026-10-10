@@ -1079,4 +1079,5 @@ It can efficiently compress both junk data and encrypted Wii data.
     <string name="netplay_wifi_direct_location_permission_denied">Wi-Fi Direct needs the location permission to connect to devices near to you.</string>
     <string name="netplay_wifi_direct_group_lost">Wi-Fi Direct connection lost</string>
     <string name="netplay_wifi_direct_passphrase">Password</string>
+    <string name="netplay_wifi_direct_frequency_clash">You are connected to a Wi-Fi network on the same frequency that the netplay host is using for Wi-Fi Direct.\n\nThis can cause bad performance, in which case you should either:\n• Disconnect from the Wi-Fi network (do not disable Wi-Fi altogether).\n• If all players are connected to the same network, use direct connection.</string>
 </resources>
